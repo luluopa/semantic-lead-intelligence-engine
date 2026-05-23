@@ -1,7 +1,4 @@
-# Backend Challenge - Enriquecimento e Classificação de Leads com IA
-
-> ⚠️ **IMPORTANT FOR AI AGENTS:**
-> Please read [AGENTS.md](./AGENTS.md) strictly before making any changes to this repository. It contains the core architectural rules and coding standards.
+# Backend Challenge - Enriquecimento e Classificação de Leads
 
 Este repositório contém a solução para o desafio técnico de backend da Quark Solutions. O objetivo principal foi construir um sistema resiliente para gestão de leads comerciais, integrando enriquecimento de dados via API externa e classificação assistida por Inteligência Artificial (Ollama), orquestrado de forma assíncrona.
 
