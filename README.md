@@ -1,95 +1,97 @@
-# Backend Challenge - Enriquecimento e Classificação de Leads
+# Backend Challenge - Lead Enrichment and Classification
 
-Este repositório contém a solução para o desafio técnico de backend da Quark Solutions. O objetivo principal foi construir um sistema resiliente para gestão de leads comerciais, integrando enriquecimento de dados via API externa e classificação assistida por Inteligência Artificial (Ollama), orquestrado de forma assíncrona.
+*[Leia em Português / Read in Portuguese](./README.pt-BR.md)*
 
-## Tecnologias
+This repository contains the solution for the Quark Solutions backend technical challenge. The main objective was to build a resilient system for commercial lead management, integrating data enrichment via external API and AI-assisted classification (Ollama), orchestrated asynchronously.
 
-A stack foi escolhida com foco em produtividade, tipagem forte e robustez, seguindo os requisitos do desafio:
+## Technologies
+
+The stack was chosen focusing on productivity, strong typing, and robustness, following the challenge requirements:
 
 - Runtime: Node.js (v20) + TypeScript
-- Framework: NestJS (v11) - Escolhido pela arquitetura opinativa e injeção de dependências nativa.
-- Persistência: PostgreSQL (v16) + Prisma ORM - Tipagem forte gerada a partir do schema, evitando erros em tempo de execução.
-- Mensageria: RabbitMQ - O coração do processamento assíncrono.
-- IA Local: Ollama rodando o modelo `tinyllama` - Leve, rápido e não depende de chaves de API externas.
-- Qualidade e Testes: Vitest (mais rápido que o Jest padrão) e ESLint/Prettier.
-- Infraestrutura: Docker e Docker Compose.
+- Framework: NestJS (v11) - Chosen for its opinionated architecture and native dependency injection.
+- Persistence: PostgreSQL (v16) + Prisma ORM - Strong typing generated from the schema, avoiding runtime errors.
+- Messaging: RabbitMQ - The heart of asynchronous processing.
+- Local AI: Ollama running the `tinyllama` model - Lightweight, fast, and does not depend on external API keys.
+- Quality and Tests: Vitest (faster than standard Jest) and ESLint/Prettier.
+- Infrastructure: Docker and Docker Compose.
 
 ---
 
-## Arquitetura e Decisões de Design
+## Architecture and Design Decisions
 
-O maior risco do desafio não era o CRUD, mas garantir a consistência dos dados frente a falhas de APIs externas ou retornos malformados da IA. As decisões abaixo mitigam esses riscos:
+The biggest risk of the challenge was not the CRUD itself, but ensuring data consistency against external API failures or malformed AI returns. The decisions below mitigate these risks:
 
-### 1. Processamento Assíncrono e Orquestração (Pipeline)
+### 1. Asynchronous Processing and Orchestration (Pipeline)
 
-Para não travar as requisições HTTP, a API apenas aceita o lead (HTTP 202 Accepted) e delega o processamento.
+To avoid blocking HTTP requests, the API merely accepts the lead (HTTP 202 Accepted) and delegates processing.
 
-Decisão Crítica: Disparar o enriquecimento e a classificação simultaneamente geraria uma condição de corrida, pois a IA precisa dos dados enriquecidos (faturamento, funcionários) para calcular um score preciso.
-Solução: Implementei um fluxo encadeado (Pipeline).
-1. O Lead é criado e publicado na fila de `enrichment`.
-2. O Worker de Enriquecimento processa os dados.
-3. Apenas em caso de sucesso, o próprio worker publica a mensagem na fila de `classification`.
+Critical Decision: Triggering enrichment and classification simultaneously would create a race condition, as the AI needs the enriched data (revenue, employees) to calculate an accurate score.
+Solution: I implemented a chained flow (Pipeline).
+1. The Lead is created and published to the `enrichment` queue.
+2. The Enrichment Worker processes the data.
+3. Only on success, the worker itself publishes the message to the `classification` queue.
 
 ```mermaid
 flowchart TD
-    Client["Cliente REST"] -->|POST /leads| API["NestJS API"]
-    API -->|Salva PENDING| DB[(PostgreSQL)]
-    API -->|Publica| Q_Enrich["Fila: lead.enrichment"]
+    Client["REST Client"] -->|POST /leads| API["NestJS API"]
+    API -->|Saves PENDING| DB[(PostgreSQL)]
+    API -->|Publishes| Q_Enrich["Queue: lead.enrichment"]
     
     Q_Enrich --> W_Enrich["Worker: Enrichment"]
-    W_Enrich -->|Consulta| MockAPI["Mock API Externa"]
-    W_Enrich -->|Atualiza ENRICHED| DB
-    W_Enrich -->|Publica Sucesso| Q_Class["Fila: lead.classification"]
+    W_Enrich -->|Queries| MockAPI["External Mock API"]
+    W_Enrich -->|Updates ENRICHED| DB
+    W_Enrich -->|Publishes Success| Q_Class["Queue: lead.classification"]
     
     Q_Class --> W_Class["Worker: Classification"]
-    W_Class -->|Prompt JSON| Ollama["Ollama (tinyllama)"]
-    W_Class -->|Valida Schema Zod| W_Class
-    W_Class -->|Atualiza CLASSIFIED| DB
+    W_Class -->|JSON Prompt| Ollama["Ollama (tinyllama)"]
+    W_Class -->|Zod Schema Validation| W_Class
+    W_Class -->|Updates CLASSIFIED| DB
 ```
 
-### 2. Resiliência com RabbitMQ (DLX/DLQ)
+### 2. Resilience with RabbitMQ (DLX/DLQ)
 
-Sistemas distribuídos falham. Para não perder leads:
-- O controle de canal é feito via `amqp-connection-manager`.
-- Implementação de Dead Letter Exchanges (DLX) e Dead Letter Queues (DLQ).
-- Erros de negócio (ex: IA retornou lixo irrecuperável) geram status `FAILED` e a mensagem recebe `ack`.
-- Erros de infraestrutura (ex: banco indisponível, timeout de rede) geram `nack` e a mensagem é roteada para a DLQ, permitindo reprocessamento posterior sem travar a fila principal.
+Distributed systems fail. To avoid losing leads:
+- Channel control is done via `amqp-connection-manager`.
+- Implementation of Dead Letter Exchanges (DLX) and Dead Letter Queues (DLQ).
+- Business errors (e.g., AI returned unrecoverable garbage) generate a `FAILED` status and the message receives an `ack`.
+- Infrastructure errors (e.g., database unavailable, network timeout) generate a `nack` and the message is routed to the DLQ, allowing subsequent reprocessing without blocking the main queue.
 
-### 3. Máquina de Estados (State Machine)
+### 3. State Machine
 
-Um lead possui um ciclo de vida estrito: `PENDING` -> `ENRICHING` -> `ENRICHED` -> `CLASSIFYING` -> `CLASSIFIED`.
-Para evitar que uma requisição concorrente tente classificar um lead que ainda está sendo enriquecido, as transições são validadas atomicamente antes de qualquer atualização no banco, garantindo a consistência do domínio.
+A lead has a strict lifecycle: `PENDING` -> `ENRICHING` -> `ENRICHED` -> `CLASSIFYING` -> `CLASSIFIED`.
+To prevent a concurrent request from trying to classify a lead that is still being enriched, transitions are validated atomically before any database update, ensuring domain consistency.
 
-### 4. Tratamento de "Alucinações" da IA
+### 4. Handling AI "Hallucinations"
 
-Modelos pequenos como o `tinyllama` são eficientes, mas podem ignorar instruções do prompt.
-- Prompt Engineering: O Ollama é configurado para forçar o output em formato JSON (`format: 'json'`).
-- Validação de Schema (Zod): O retorno da IA passa por um parser rigoroso. Se o modelo omitir campos obrigatórios (`score`, `classification`) ou inventar valores fora dos enums permitidos, a execução é marcada como `FAILED`, sem derrubar o worker.
+Small models like `tinyllama` are efficient but may ignore prompt instructions.
+- Prompt Engineering: Ollama is configured to enforce JSON output format (`format: 'json'`).
+- Schema Validation (Zod): The AI return goes through a strict parser. If the model omits mandatory fields (`score`, `classification`) or invents values outside the allowed enums, the execution is marked as `FAILED`, without crashing the worker.
 
-### 5. Histórico Imutável (Event Sourcing "Light")
+### 5. Immutable History (Light Event Sourcing)
 
-Para atender ao requisito de rastreabilidade, em vez de sobrescrever os dados do lead, optei por tabelas separadas para `Enrichment` e `AiClassification`. Cada reprocessamento insere um novo registro, permitindo auditar a evolução do score e comparar execuções ao longo do tempo.
+To meet the traceability requirement, instead of overwriting the lead's data, I opted for separate tables for `Enrichment` and `AiClassification`. Each reprocessing inserts a new record, allowing auditing of the score evolution and comparing executions over time.
 
-### 6. Estratégia de Armazenamento Híbrido (Relacional + Documento)
+### 6. Hybrid Storage Strategy (Relational + Document)
 
-Um dos maiores desafios do enriquecimento de dados é a heterogeneidade: um lead pode ter 10 sócios e 3 endereços, enquanto outro pode não ter nenhum. Criar colunas fixas para tudo geraria tabelas esparsas (sparse tables) difíceis de manter.
-A solução adotada foi um modelo híbrido no PostgreSQL:
-- Colunas Fixas (Schema-on-Write): Dados essenciais e previsíveis (como `annualRevenue`, `employeeCount`, `industry`) possuem colunas tipadas. Isso garante integridade e permite consultas analíticas rápidas (ex: `WHERE annualRevenue > 1000000`).
-- Campos JSONB (Schema-on-Read): Dados estruturais variáveis (como `partners`, `cnaes`, `address`) são armazenados em colunas `JSONB`. O PostgreSQL lida com JSONB nativamente em formato binário, permitindo indexação interna sem engessar o schema. Se o provedor de dados mudar a estrutura amanhã, o banco não quebra e não exige migrations complexas.
+One of the biggest challenges in data enrichment is heterogeneity: one lead may have 10 partners and 3 addresses, while another may have none. Creating fixed columns for everything would generate sparse tables that are hard to maintain.
+The adopted solution was a hybrid model in PostgreSQL:
+- Fixed Columns (Schema-on-Write): Essential and predictable data (like `annualRevenue`, `employeeCount`, `industry`) have typed columns. This ensures integrity and allows fast analytical queries (e.g., `WHERE annualRevenue > 1000000`).
+- JSONB Fields (Schema-on-Read): Variable structural data (like `partners`, `cnaes`, `address`) are stored in `JSONB` columns. PostgreSQL natively handles JSONB in binary format, allowing internal indexing without rigidifying the schema. If the data provider changes structure tomorrow, the database won't break and won't require complex migrations.
 
-## Modelagem de Dados
+## Data Modeling
 
-O schema foi desenhado para suportar o histórico completo de execuções, mantendo a integridade referencial.
+The schema was designed to support the full execution history while maintaining referential integrity.
 
 ```mermaid
 erDiagram
     Lead {
         uuid id PK
         varchar fullName
-        varchar email UK "Imutável"
+        varchar email UK "Immutable"
         varchar phone
         varchar companyName
-        varchar companyCnpj UK "Imutável"
+        varchar companyCnpj UK "Immutable"
         varchar companyWebsite
         decimal estimatedValue
         enum source
@@ -110,11 +112,11 @@ erDiagram
         int employeeCount
         decimal annualRevenue
         timestamp foundedAt
-        jsonb address "Dados variáveis"
-        jsonb cnaes "Dados variáveis"
-        jsonb partners "Dados variáveis"
-        jsonb phones "Dados variáveis"
-        jsonb emails "Dados variáveis"
+        jsonb address "Variable data"
+        jsonb cnaes "Variable data"
+        jsonb partners "Variable data"
+        jsonb phones "Variable data"
+        jsonb emails "Variable data"
         timestamp requestedAt
         timestamp completedAt
         enum status "SUCCESS | FAILED"
@@ -137,49 +139,49 @@ erDiagram
         timestamp createdAt
     }
 
-    Lead ||--o{ Enrichment : "possui histórico de"
-    Lead ||--o{ AiClassification : "possui histórico de"
+    Lead ||--o{ Enrichment : "has history of"
+    Lead ||--o{ AiClassification : "has history of"
 ```
 
 ---
 
-## Como executar o projeto
+## How to run the project
 
-A infraestrutura foi totalmente containerizada para facilitar a execução.
+The infrastructure has been completely containerized for easy execution.
 
-### 1. Clonar o repositório
+### 1. Clone the repository
 ```bash
-git clone https://github.com/seu-usuario/backend_challenge.git
+git clone https://github.com/your-user/backend_challenge.git
 cd backend_challenge
 ```
 
-### 2. Subir a infraestrutura
-Este comando fará o build da API e iniciará o PostgreSQL, RabbitMQ, Mock API e Ollama.
+### 2. Start the infrastructure
+This command will build the API and start PostgreSQL, RabbitMQ, Mock API, and Ollama.
 
 ```bash
 docker compose up -d
 ```
 
-Atenção: Na primeira execução, o container do Ollama fará o download do modelo `tinyllama` (~637MB). O tempo dependerá da sua conexão. Acompanhe o progresso com:
+Attention: On the first run, the Ollama container will download the `tinyllama` model (~637MB). The time will depend on your connection. Follow the progress with:
 ```bash
 docker compose logs -f ollama
 ```
 
-### 3. Banco de Dados (Migrations e Seed)
-O container da API já executa as migrations automaticamente ao subir (`npx prisma migrate deploy`). 
+### 3. Database (Migrations and Seed)
+The API container automatically runs migrations on startup (`npx prisma migrate deploy`). 
 
-Para popular o banco com leads de teste (CNPJs válidos), execute o comando de seed dentro do container da API:
+To populate the database with test leads (valid CNPJs), run the seed command inside the API container:
 
 ```bash
 docker compose exec api npm run db:seed
 ```
 
-*Dica de Desenvolvimento:* Se você quiser conectar um cliente de banco de dados (como DBeaver ou DataGrip) na sua máquina local, use `localhost:5432` com usuário `postgres` e senha `password`. Se quiser rodar comandos do Prisma localmente (ex: `npx prisma studio`), mude temporariamente o `DATABASE_URL` no seu arquivo `.env` de `postgres:5432` para `localhost:5432`.
+*Development Tip:* If you want to connect a database client (like DBeaver or DataGrip) on your local machine, use `localhost:5432` with user `postgres` and password `password`. If you want to run Prisma commands locally (e.g., `npx prisma studio`), temporarily change the `DATABASE_URL` in your `.env` file from `postgres:5432` to `localhost:5432`.
 
-### 4. Acessando a API (O Primeiro Request)
-A API estará disponível em `http://localhost:3000`.
+### 4. Accessing the API (The First Request)
+The API will be available at `http://localhost:3000`.
 
-Para testar o fluxo completo de ponta a ponta (Criação -> Enriquecimento -> Classificação), execute o seguinte comando no seu terminal:
+To test the complete end-to-end flow (Creation -> Enrichment -> Classification), run the following command in your terminal:
 
 ```bash
 curl -X POST http://localhost:3000/leads \
@@ -194,84 +196,84 @@ curl -X POST http://localhost:3000/leads \
   }'
 ```
 
-A API retornará um status `201 Created` quase instantaneamente. O trabalho pesado está acontecendo em background.
-Para acompanhar os logs da aplicação e ver os workers processando o lead:
+The API will return a `201 Created` status almost instantly. The heavy lifting is happening in the background.
+To follow the application logs and see the workers processing the lead:
 ```bash
 docker compose logs -f api
 ```
 
-Após alguns segundos, você pode consultar o lead atualizado (substitua o ID pelo retornado no POST):
+After a few seconds, you can query the updated lead (replace the ID with the one returned in the POST):
 ```bash
-curl http://localhost:3000/leads/ID_DO_LEAD
+curl http://localhost:3000/leads/LEAD_ID
 ```
 
-### 5. Observabilidade
+### 5. Observability
 
-Para facilitar a visualização do que está acontecendo no sistema, especialmente durante apresentações, duas ferramentas de observabilidade foram incluídas no cluster:
+To easily visualize what is happening in the system, especially during presentations, two observability tools have been included in the cluster:
 
-**Dozzle (Visualizador de Logs em Tempo Real):**
-- Acesse: `http://localhost:8080`
-- O Dozzle permite ver os logs de todos os containers (API, Workers, Ollama, RabbitMQ) diretamente pelo navegador, com busca e filtros, sem precisar usar o terminal.
+**Dozzle (Real-time Log Viewer):**
+- Access: `http://localhost:8080`
+- Dozzle allows you to see the logs of all containers (API, Workers, Ollama, RabbitMQ) directly from the browser, with search and filters, without needing to use the terminal.
 
-**RabbitMQ Management UI (Monitoramento de Filas):**
-- Acesse: `http://localhost:15672`
-- Usuário: `guest`
-- Senha: `guest`
-- Através deste painel, você pode ver as mensagens trafegando entre as filas (`lead.enrichment`, `lead.classification`), verificar a taxa de processamento e inspecionar a Dead Letter Queue (DLQ) em caso de falhas. *(Nota: As credenciais padrão `guest/guest` são usadas apenas para o ambiente de desenvolvimento local).*
+**RabbitMQ Management UI (Queue Monitoring):**
+- Access: `http://localhost:15672`
+- User: `guest`
+- Password: `guest`
+- Through this dashboard, you can see messages traversing between queues (`lead.enrichment`, `lead.classification`), check the processing rate, and inspect the Dead Letter Queue (DLQ) in case of failures. *(Note: Default credentials `guest/guest` are used only for local development environment).*
 
 ---
 
-## Rodando os Testes
+## Running the Tests
 
-O projeto utiliza o Vitest para testes unitários e de integração.
+The project uses Vitest for unit and integration testing.
 
 ```bash
-# Executar testes
+# Run tests
 docker compose exec api npm run test
 
-# Executar testes com relatório de cobertura
+# Run tests with coverage report
 docker compose exec api npm run test:cov
 ```
 
 ---
 
-## Endpoints Principais
+## Main Endpoints
 
 ### Leads
-- `POST /leads` - Cria um novo lead (dispara o enriquecimento automaticamente).
-- `GET /leads` - Lista os leads. Suporta paginação (`?page=1&limit=10`) e filtros (`?search=termo&source=WEBSITE`).
-- `GET /leads/:id` - Traz os detalhes do lead, incluindo o histórico de enriquecimento e classificação.
-- `PATCH /leads/:id` - Atualiza dados (exceto `email` e `companyCnpj`, que são imutáveis).
-- `GET /leads/export` - Rota dedicada para exportação dos dados consolidados.
+- `POST /leads` - Creates a new lead (triggers enrichment automatically).
+- `GET /leads` - Lists leads. Supports pagination (`?page=1&limit=10`) and filters (`?search=term&source=WEBSITE`).
+- `GET /leads/:id` - Retrieves lead details, including enrichment and classification history.
+- `PATCH /leads/:id` - Updates data (except `email` and `companyCnpj`, which are immutable).
+- `GET /leads/export` - Dedicated route for exporting consolidated data.
 
-### Fluxos Assíncronos (Reprocessamento)
-- `POST /leads/:id/enrichment` - Solicita um novo enriquecimento.
-- `POST /leads/:id/classification` - Solicita uma nova classificação pela IA.
+### Asynchronous Flows (Reprocessing)
+- `POST /leads/:id/enrichment` - Requests a new enrichment.
+- `POST /leads/:id/classification` - Requests a new AI classification.
 
 ---
 
-## Trade-offs e Limitações
+## Trade-offs and Limitations
 
-Toda arquitetura envolve escolhas. Abaixo estão os principais trade-offs assumidos nesta implementação:
+Every architecture involves choices. Below are the main trade-offs assumed in this implementation:
 
-1. **Armazenamento Híbrido (JSONB) vs Colunas Fixas:**
-   - *Decisão:* Usar `JSONB` para dados variáveis de enriquecimento (como sócios e CNAEs).
-   - *Trade-off:* Ganhamos extrema flexibilidade para lidar com APIs externas que mudam de contrato, mas perdemos a capacidade de criar Foreign Keys (chaves estrangeiras) rígidas para esses dados específicos.
+1. **Hybrid Storage (JSONB) vs Fixed Columns:**
+   - *Decision:* Use `JSONB` for variable enrichment data (like partners and CNAEs).
+   - *Trade-off:* We gain extreme flexibility to handle external APIs that change their contract, but we lose the ability to create rigid Foreign Keys for these specific data points.
 
-2. **Ollama Local (tinyllama) vs API Proprietária (OpenAI/Anthropic):**
-   - *Decisão:* Usar um modelo local pequeno para cumprir o requisito do desafio sem gerar custos.
-   - *Trade-off:* O `tinyllama` é rápido, mas tem maior propensão a "alucinações" e quebra de formatação JSON comparado a modelos maiores. A mitigação foi o uso de validação estrita (Zod), mas em um ambiente de produção com orçamento, uma API externa gerenciada entregaria classificações mais precisas.
+2. **Local Ollama (tinyllama) vs Proprietary API (OpenAI/Anthropic):**
+   - *Decision:* Use a small local model to fulfill the challenge requirement without generating costs.
+   - *Trade-off:* `tinyllama` is fast but has a higher propensity for "hallucinations" and JSON formatting breakage compared to larger models. The mitigation was the use of strict validation (Zod), but in a production environment with a budget, a managed external API would deliver more accurate classifications.
 
 3. **Polling vs Webhooks/SSE:**
-   - *Decisão:* O cliente precisa fazer um `GET /leads/:id` para verificar se o processamento assíncrono terminou.
-   - *Trade-off:* Mantém a arquitetura backend simples e focada nos workers. Em um cenário real de frontend reativo, a implementação de Webhooks ou Server-Sent Events (SSE) seria necessária para notificar o cliente em tempo real, mas adicionaria complexidade fora do escopo atual.
+   - *Decision:* The client needs to perform a `GET /leads/:id` to check if asynchronous processing has finished.
+   - *Trade-off:* Keeps the backend architecture simple and focused on workers. In a real reactive frontend scenario, implementing Webhooks or Server-Sent Events (SSE) would be necessary to notify the client in real time, but would add complexity outside the current scope.
 
 ---
 
-## Melhorias Futuras (Visão de Produção)
+## Future Improvements (Production Vision)
 
-Para um ambiente produtivo de alta escala, as seguintes melhorias seriam implementadas:
-1. Cache (Redis): Evitar chamadas repetidas à API de enriquecimento para o mesmo CNPJ em curtos períodos.
-2. Autenticação e Autorização: Proteger os endpoints com JWT e RBAC (Role-Based Access Control).
-3. Observabilidade (Prometheus/Grafana): Monitorar o tempo médio de resposta do Ollama e a taxa de falhas de parsing do JSON. Modelos estocásticos exigem monitoramento contínuo.
-4. Rate Limiting: Proteger a API contra abusos, especialmente nas rotas que disparam processamento em background.
+For a large-scale production environment, the following improvements would be implemented:
+1. Caching (Redis): Avoid repeated calls to the enrichment API for the same CNPJ in short periods.
+2. Authentication and Authorization: Protect endpoints with JWT and RBAC (Role-Based Access Control).
+3. Observability (Prometheus/Grafana): Monitor Ollama's average response time and JSON parsing failure rate. Stochastic models require continuous monitoring.
+4. Rate Limiting: Protect the API against abuse, especially on routes that trigger background processing.
