@@ -59,7 +59,7 @@ describe('LeadsService', () => {
       expect(mockPrismaService.lead.create).toHaveBeenCalledWith({
         data: { ...createLeadDto, status: 'PENDING' },
       });
-      // Verifica se disparou APENAS para a fila de enrichment
+      // Check if it triggered ONLY for the enrichment queue
       expect(mockRabbitmqService.publish).toHaveBeenCalledTimes(1);
       expect(mockRabbitmqService.publish).toHaveBeenCalledWith(ENRICHMENT_QUEUE, {
         leadId: mockCreatedLead.id,

@@ -5,7 +5,7 @@ const prisma = new PrismaClient();
 async function main() {
   console.log('Seeding database...');
 
-  // Limpar banco antes de rodar o seed
+  // Clear database before running seed
   await prisma.aiClassification.deleteMany();
   await prisma.enrichment.deleteMany();
   await prisma.lead.deleteMany();
@@ -16,7 +16,7 @@ async function main() {
       email: 'joao.silva@techcorp.com',
       phone: '+5511999991111',
       companyName: 'Tech Corp',
-      companyCnpj: '12345678000199', // CNPJ que a Mock API conhece
+      companyCnpj: '12345678000199', // CNPJ known by Mock API
       source: 'WEBSITE',
       status: 'PENDING',
     },
@@ -28,7 +28,7 @@ async function main() {
       email: 'maria.souza@outraempresa.com',
       phone: '+5511988882222',
       companyName: 'Outra Empresa',
-      companyCnpj: '98765432000199', // Outro CNPJ para testes
+      companyCnpj: '98765432000199', // Another CNPJ for testing
       source: 'REFERRAL',
       status: 'PENDING',
     },

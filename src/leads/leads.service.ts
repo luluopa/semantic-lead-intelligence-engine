@@ -21,7 +21,7 @@ export class LeadsService {
   ) {}
 
   async create(dto: CreateLeadDto) {
-    // Validação de unicidade
+    // Uniqueness validation
     const existingEmail = await this.prisma.lead.findUnique({
       where: { email: dto.email },
     });
@@ -32,7 +32,7 @@ export class LeadsService {
     });
     if (existingCnpj) throw new ConflictException('CNPJ already in use');
 
-    // Cria o lead com status PENDING
+    // Create lead with PENDING status
     const newLead = await this.prisma.lead.create({
       data: {
         ...dto,
@@ -40,7 +40,7 @@ export class LeadsService {
       },
     });
 
-    // DISPARO ÚNICO: Apenas Enriquecimento (O encadeamento para Classificação será feito pelo Worker)
+    // SINGLE TRIGGER: Only Enrichment (Queue chaining for Classification will be handled by the Worker)
     await this.rabbitmqService.publish(ENRICHMENT_QUEUE, {
       leadId: newLead.id,
     });
@@ -102,7 +102,7 @@ export class LeadsService {
     const lead = await this.prisma.lead.findUnique({ where: { id } });
     if (!lead) throw new NotFoundException(`Lead ${id} not found`);
 
-    // Impede a atualização de campos imutáveis via spread (por segurança)
+    // Prevent updating immutable fields via spread (for security)
     delete dto.email;
     delete dto.companyCnpj;
 
@@ -113,7 +113,7 @@ export class LeadsService {
   }
 
   async exportData() {
-    // Para simplificar no desafio, vamos apenas trazer os leads com as classificações mais recentes
+    // For simplicity, we will only fetch leads with the most recent classifications
     return this.prisma.lead.findMany({
       include: {
         enrichments: { orderBy: { requestedAt: 'desc' }, take: 1 },

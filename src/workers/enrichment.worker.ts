@@ -56,7 +56,7 @@ export class EnrichmentWorker implements OnModuleInit {
     try {
       this.logger.log(`Processing enrichment for lead ${leadId}`);
 
-      // 1. Atualizar status do lead para ENRICHING
+      // 1. Update lead status to ENRICHING
       await this.prisma.lead.update({
         where: { id: leadId },
         data: { status: 'ENRICHING' },
@@ -67,14 +67,14 @@ export class EnrichmentWorker implements OnModuleInit {
       });
       if (!lead) throw new Error('Lead not found');
 
-      // 2. Chamar Mock API
+      // 2. Call Mock API
       const mockApiUrl = process.env.MOCK_API_URL || 'http://localhost:4000';
       const response = await axios.get<Record<string, any>>(
         `${mockApiUrl}/enrich/${lead.companyCnpj}`,
       );
       const data = response.data;
 
-      // 3. Salvar Histórico de Enriquecimento (com campos JSONB)
+      // 3. Save Enrichment History (with JSONB fields)
       await this.prisma.enrichment.create({
         data: {
           leadId,
@@ -96,13 +96,13 @@ export class EnrichmentWorker implements OnModuleInit {
         },
       });
 
-      // 4. Atualizar status do lead para ENRICHED
+      // 4. Update lead status to ENRICHED
       await this.prisma.lead.update({
         where: { id: leadId },
         data: { status: 'ENRICHED' },
       });
 
-      // 5. ENCADEAMENTO DE FILAS: Disparar Classificação após sucesso
+      // 5. QUEUE CHAINING: Trigger Classification after success
       this.logger.log(
         `Enrichment successful. Dispatching classification for lead ${leadId}`,
       );
@@ -116,7 +116,7 @@ export class EnrichmentWorker implements OnModuleInit {
         error instanceof Error ? error.message : 'Unknown error';
       this.logger.error(`Failed to enrich lead ${leadId}`, errorMessage);
 
-      // Registrar falha no histórico
+      // Record failure in history
       await this.prisma.enrichment.create({
         data: {
           leadId,
@@ -126,13 +126,13 @@ export class EnrichmentWorker implements OnModuleInit {
         },
       });
 
-      // Atualizar status do lead para FAILED
+      // Update lead status to FAILED
       await this.prisma.lead.update({
         where: { id: leadId },
         data: { status: 'FAILED' },
       });
 
-      // Nack para enviar para DLQ
+      // Nack to send to DLQ
       channel.nack(msg, false, false);
     }
   }

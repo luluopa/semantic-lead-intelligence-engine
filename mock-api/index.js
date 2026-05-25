@@ -20,9 +20,9 @@ const getRandomInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) +
 app.get('/enrich/:cnpj', (req, res) => {
   const { cnpj } = req.params;
   
-  // Simula um atraso de rede
+  // Simulate network delay
   setTimeout(() => {
-    // Simula uma falha aleatória (10% de chance) para testar a resiliência
+    // Simulate a random failure (10% chance) to test resilience
     if (Math.random() < 0.1) {
       return res.status(500).json({ error: 'Internal Server Error' });
     }

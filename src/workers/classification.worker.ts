@@ -62,13 +62,13 @@ export class ClassificationWorker implements OnModuleInit {
 
               const latestEnrichment = lead.enrichments[0];
 
-              // Chama o serviço de IA com Zod Validation
+              // Call AI service with Zod Validation
               const aiResult = await this.classificationService.classifyLead(
                 lead,
                 latestEnrichment || null,
               );
 
-              // Salvar Histórico de Classificação
+              // Save Classification History
               await this.prisma.aiClassification.create({
                 data: {
                   leadId,
@@ -111,7 +111,7 @@ export class ClassificationWorker implements OnModuleInit {
                 data: { status: 'FAILED' },
               });
 
-              // Nack para enviar para DLQ
+              // Nack to send to DLQ
               channel.nack(msg, false, false);
             }
           },

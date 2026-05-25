@@ -68,7 +68,7 @@ model Enrichment {
   leadId        String
   lead          Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
   
-  // Dados Fixos (Schema-on-Write)
+  // Fixed Data (Schema-on-Write)
   companyName   String?
   tradeName     String?
   cnpj          String?
@@ -78,14 +78,14 @@ model Enrichment {
   annualRevenue Decimal? @db.Decimal(15, 2)
   foundedAt     DateTime?
 
-  // Dados Variáveis (Schema-on-Read / JSONB)
+  // Variable Data (Schema-on-Read / JSONB)
   address       Json?    @db.JsonB
   cnaes         Json?    @db.JsonB
   partners      Json?    @db.JsonB
   phones        Json?    @db.JsonB
   emails        Json?    @db.JsonB
 
-  // Metadados de Execução
+  // Execution Metadata
   requestedAt   DateTime @default(now())
   completedAt   DateTime?
   status        ExecutionStatus
@@ -107,7 +107,7 @@ model AiClassification {
   commercialPotential CommercialPotential?
   modelUsed           String?
 
-  // Metadados de Execução
+  // Execution Metadata
   requestedAt         DateTime @default(now())
   completedAt         DateTime?
   status              ExecutionStatus

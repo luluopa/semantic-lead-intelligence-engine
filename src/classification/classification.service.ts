@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
 import { z } from 'zod';
 
-// Zod Schema para validar o output do Ollama
+// Zod Schema to validate Ollama output
 const OllamaResponseSchema = z.object({
   score: z.number().min(0).max(100),
   classification: z.enum(['HOT', 'WARM', 'COLD']),
@@ -25,7 +25,7 @@ export class ClassificationService {
 
     const industry = enrichmentData?.industry
       ? String(enrichmentData.industry)
-      : 'Desconhecido';
+      : 'Unknown';
     const annualRevenue = enrichmentData?.annualRevenue
       ? Number(enrichmentData.annualRevenue)
       : 0;
@@ -34,27 +34,27 @@ export class ClassificationService {
       : 0;
     const companyName = leadData.companyName
       ? String(leadData.companyName)
-      : 'Desconhecido';
+      : 'Unknown';
 
     const prompt = `
-      Você é um especialista em vendas B2B. Analise este lead e retorne APENAS um JSON válido.
-      Regras de Classificação:
-      - HOT (High): Faturamento > 1000000 e mais de 50 funcionários.
-      - WARM (Medium): Faturamento entre 500000 e 1000000.
-      - COLD (Low): Faturamento < 500000 ou dados insuficientes.
+      You are a B2B sales expert. Analyze this lead and return ONLY a valid JSON.
+      Classification Rules:
+      - HOT (High): Revenue > 1000000 and more than 50 employees.
+      - WARM (Medium): Revenue between 500000 and 1000000.
+      - COLD (Low): Revenue < 500000 or insufficient data.
       
-      Dados do Lead:
-      Nome: ${companyName}
-      Setor: ${industry}
-      Faturamento: ${annualRevenue}
-      Funcionários: ${employeeCount}
+      Lead Data:
+      Name: ${companyName}
+      Industry: ${industry}
+      Revenue: ${annualRevenue}
+      Employees: ${employeeCount}
 
-      O JSON deve ter EXATAMENTE este formato:
+      The JSON must have EXACTLY this format:
       {
-        "score": número de 0 a 100,
-        "classification": "HOT", "WARM" ou "COLD",
-        "justification": "Sua justificativa aqui",
-        "commercialPotential": "HIGH", "MEDIUM" ou "LOW"
+        "score": number from 0 to 100,
+        "classification": "HOT", "WARM" or "COLD",
+        "justification": "Your justification here",
+        "commercialPotential": "HIGH", "MEDIUM" or "LOW"
       }
     `;
 
@@ -72,7 +72,7 @@ export class ClassificationService {
       const rawResponse = response.data.response as string;
       const rawJson = JSON.parse(rawResponse) as Record<string, unknown>;
 
-      // Validação rigorosa com Zod
+      // Strict validation with Zod
       const validatedData = OllamaResponseSchema.parse(rawJson);
 
       return validatedData;
