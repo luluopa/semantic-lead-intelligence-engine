@@ -1,12 +1,12 @@
-# Backend Challenge - Enriquecimento e Classificação de Leads
+# Sistema de Enriquecimento e Classificação de Leads
 
 *[Read in English / Leia em Inglês](./README.md)*
 
-Este repositório contém a solução para o desafio técnico de backend da Quark Solutions. O objetivo principal foi construir um sistema resiliente para gestão de leads comerciais, integrando enriquecimento de dados via API externa e classificação assistida por Inteligência Artificial (Ollama), orquestrado de forma assíncrona.
+Este repositório contém um sistema resiliente para gestão de leads comerciais, integrando enriquecimento de dados via API externa e classificação assistida por Inteligência Artificial (Ollama), orquestrado de forma assíncrona.
 
 ## Tecnologias
 
-A stack foi escolhida com foco em produtividade, tipagem forte e robustez, seguindo os requisitos do desafio:
+A stack foi escolhida com foco em produtividade, tipagem forte e robustez, seguindo os requisitos do projeto:
 
 - Runtime: Node.js (v20) + TypeScript
 - Framework: NestJS (v11) - Escolhido pela arquitetura opinativa e injeção de dependências nativa.
@@ -20,7 +20,7 @@ A stack foi escolhida com foco em produtividade, tipagem forte e robustez, segui
 
 ## Arquitetura e Decisões de Design
 
-O maior risco do desafio não era o CRUD, mas garantir a consistência dos dados frente a falhas de APIs externas ou retornos malformados da IA. As decisões abaixo mitigam esses riscos:
+Um aspecto crítico do sistema é garantir a consistência dos dados frente a falhas de APIs externas ou retornos malformados da IA. As decisões abaixo mitigam esses riscos:
 
 ### 1. Processamento Assíncrono e Orquestração (Pipeline)
 
@@ -151,8 +151,8 @@ A infraestrutura foi totalmente containerizada para facilitar a execução.
 
 ### 1. Clonar o repositório
 ```bash
-git clone https://github.com/seu-usuario/backend_challenge.git
-cd backend_challenge
+git clone https://github.com/seu-usuario/lead-management-system.git
+cd lead-management-system
 ```
 
 ### 2. Subir a infraestrutura
@@ -261,7 +261,7 @@ Toda arquitetura envolve escolhas. Abaixo estão os principais trade-offs assumi
    - *Trade-off:* Ganhamos extrema flexibilidade para lidar com APIs externas que mudam de contrato, mas perdemos a capacidade de criar Foreign Keys (chaves estrangeiras) rígidas para esses dados específicos.
 
 2. **Ollama Local (tinyllama) vs API Proprietária (OpenAI/Anthropic):**
-   - *Decisão:* Usar um modelo local pequeno para cumprir o requisito do desafio sem gerar custos.
+   - *Decisão:* Usar um modelo local pequeno para fornecer uma solução com bom custo-benefício, sem depender de APIs externas pagas.
    - *Trade-off:* O `tinyllama` é rápido, mas tem maior propensão a "alucinações" e quebra de formatação JSON comparado a modelos maiores. A mitigação foi o uso de validação estrita (Zod), mas em um ambiente de produção com orçamento, uma API externa gerenciada entregaria classificações mais precisas.
 
 3. **Polling vs Webhooks/SSE:**
