@@ -35,8 +35,14 @@ Solução: Implementei um fluxo encadeado (Pipeline).
 ```mermaid
 flowchart TD
     Client["Cliente REST"] -->|POST /leads| API["NestJS API"]
-    API -->|Salva PENDING| DB[(PostgreSQL)]
-    API -->|Publica| Q_Enrich["Fila: lead.enrichment"]
+    
+    subgraph "DB Transaction"
+        API -->|1. Salva PENDING| DB[(PostgreSQL)]
+        API -->|2. Salva Evento| Outbox[(Tabela Outbox)]
+    end
+    
+    OutboxWorker["Worker: Outbox"] -.->|Polls SKIP LOCKED| Outbox
+    OutboxWorker -->|Publica| Q_Enrich["Fila: lead.enrichment"]
     
     Q_Enrich --> W_Enrich["Worker: Enrichment"]
     W_Enrich -->|Consulta| MockAPI["Mock API Externa"]
@@ -78,6 +84,15 @@ Um dos maiores desafios do enriquecimento de dados é a heterogeneidade: um lead
 A solução adotada foi um modelo híbrido no PostgreSQL:
 - Colunas Fixas (Schema-on-Write): Dados essenciais e previsíveis (como `annualRevenue`, `employeeCount`, `industry`) possuem colunas tipadas. Isso garante integridade e permite consultas analíticas rápidas (ex: `WHERE annualRevenue > 1000000`).
 - Campos JSONB (Schema-on-Read): Dados estruturais variáveis (como `partners`, `cnaes`, `address`) são armazenados em colunas `JSONB`. O PostgreSQL lida com JSONB nativamente em formato binário, permitindo indexação interna sem engessar o schema. Se o provedor de dados mudar a estrutura amanhã, o banco não quebra e não exige migrations complexas.
+
+### 7. Outbox Pattern (Mensageria Transacional)
+
+Para evitar o problema de "Dual Write", onde um evento pode ser salvo no banco de dados mas falhar ao ser publicado no RabbitMQ, foi implementado o Outbox Pattern.
+- **Integridade Transacional:** A API salva o `Lead` e o evento no `Outbox` em uma única transação no banco de dados.
+- **Outbox Worker Dedicado:** Um worker separado em background pesquisa a tabela `Outbox` e publica os eventos no RabbitMQ.
+- **Concorrência e Escalabilidade:** O worker utiliza `FOR UPDATE SKIP LOCKED` do PostgreSQL combinado com índices parciais para garantir que múltiplas instâncias do worker possam rodar em paralelo sem concorrência de locks ou starvation de I/O.
+- **Controle de Backpressure:** O worker usa intervalos dinâmicos de polling e "publisher confirms" para evitar sobrecarregar o RabbitMQ durante picos.
+- **Arquitetura de Adapters:** A implementação de mensageria é desacoplada através de uma interface `MessagePublisher`, permitindo que o broker subjacente (atualmente RabbitMQ) seja trocado no futuro sem alterar o serviço de Outbox.
 
 ## Modelagem de Dados
 
@@ -139,8 +154,20 @@ erDiagram
         timestamp createdAt
     }
 
+    Outbox {
+        uuid id PK
+        varchar eventType
+        jsonb payload
+        enum status "PENDING | PROCESSED | FAILED"
+        int attempts
+        varchar lastError
+        timestamp createdAt
+        timestamp processedAt
+    }
+
     Lead ||--o{ Enrichment : "possui histórico de"
     Lead ||--o{ AiClassification : "possui histórico de"
+    Lead ||--o{ Outbox : "gera eventos em"
 ```
 
 ---
