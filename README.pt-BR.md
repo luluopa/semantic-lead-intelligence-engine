@@ -301,6 +301,14 @@ docker compose exec api npm run test:cov
 
 ---
 
+## Documentos de Arquitetura & RFCs
+
+Para grandes funcionalidades e mudanças arquiteturais futuras, utilizamos o processo de Request for Comments (RFC) para documentar o design antes da implementação.
+
+- **Busca por Proximidade**: [RFC-001-Proximity-Search](./RFC-001-Proximity-Search.md) - Design para uma busca por proximidade vetorial assíncrona usando `pgvector` e Ollama.
+
+---
+
 ## Trade-offs e Limitações
 
 Toda arquitetura envolve escolhas. Abaixo estão os principais trade-offs assumidos nesta implementação:

@@ -319,6 +319,14 @@ docker compose exec api npm run test:cov
 
 ---
 
+## Architecture Documents & RFCs
+
+For upcoming major features and architectural changes, we use the Request for Comments (RFC) process to document the design before implementation.
+
+- **Proximity Search**: [RFC-001-Proximity-Search](./RFC-001-Proximity-Search.md) - Design for an asynchronous vector-based proximity search using `pgvector` and Ollama.
+
+---
+
 ## Trade-offs and Limitations
 
 Every architecture involves choices. Below are the main trade-offs assumed in this implementation:
