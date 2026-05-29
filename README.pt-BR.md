@@ -36,27 +36,34 @@ Solução: Implementei um fluxo encadeado (Pipeline).
 flowchart TD
     Client["Cliente REST"] -->|POST /leads| API["NestJS API"]
     
-    subgraph "Transação da API"
-        API -->|1. Salva PENDING| DB[(PostgreSQL)]
-        API -->|2. Salva Evento| Outbox[(Tabela Outbox)]
+    subgraph Storage["Armazenamento (PostgreSQL)"]
+        DB[(Tabela Leads)]
+        Outbox[(Tabela Outbox)]
     end
     
+    subgraph Broker["Mensageria (RabbitMQ)"]
+        Q_Enrich["Fila: enrichment"]
+        Q_Class["Fila: classification"]
+    end
+    
+    %% Fluxo da API
+    API -->|1. Salva PENDING| DB
+    API -->|2. Salva Evento| Outbox
+    
+    %% Fluxo do Outbox Worker
     OutboxWorker["Worker: Outbox"] -.->|Polls SKIP LOCKED| Outbox
-    OutboxWorker -->|Publica| Q_Enrich["Fila: lead.enrichment"]
+    OutboxWorker -->|Publica| Q_Enrich
+    OutboxWorker -->|Publica| Q_Class
     
-    Q_Enrich --> W_Enrich["Worker: Enrichment"]
-    W_Enrich -->|Consulta| MockAPI["Mock API Externa"]
+    %% Fluxo de Enriquecimento
+    Q_Enrich -->|Consome| W_Enrich["Worker: Enrichment"]
+    W_Enrich -.->|Consulta| MockAPI["Mock API Externa"]
+    W_Enrich -->|1. Atualiza ENRICHED| DB
+    W_Enrich -->|2. Salva Evento| Outbox
     
-    subgraph "Transação de Enriquecimento"
-        W_Enrich -->|1. Atualiza ENRICHED| DB
-        W_Enrich -->|2. Salva Evento| Outbox
-    end
-    
-    OutboxWorker -->|Publica| Q_Class["Fila: lead.classification"]
-    
-    Q_Class --> W_Class["Worker: Classification"]
-    W_Class -->|Prompt JSON| Ollama["Ollama (tinyllama)"]
-    W_Class -->|Valida Schema Zod| W_Class
+    %% Fluxo de Classificação
+    Q_Class -->|Consome| W_Class["Worker: Classification"]
+    W_Class -.->|Prompt| Ollama["Ollama (tinyllama)"]
     W_Class -->|Atualiza CLASSIFIED| DB
 ```
 
@@ -94,7 +101,7 @@ A solução adotada foi um modelo híbrido no PostgreSQL:
 
 Para evitar o problema de "Dual Write", onde um evento pode ser salvo no banco de dados mas falhar ao ser publicado no RabbitMQ, foi implementado o Outbox Pattern em todo o sistema.
 - **Integridade Transacional:** Todo serviço que precisa publicar uma mensagem (API, Enrichment Worker, etc.) salva os dados de negócio e o evento no `Outbox` em uma única transação no banco de dados.
-- **Entrega Confiável:** Um worker separado em background pesquisa a tabela `Outbox` e garante que cada evento seja publicado com sucesso em sua respectiva fila (`enrichment`, `classification`, etc.).
+- **Serviço de Outbox Dedicado:** Para manter a API principal como um serviço stateless e altamente escalável, o Outbox Worker é implementado como um serviço separado e independente. Esta separação garante que a natureza stateful do mecanismo de polling (gerenciamento de lógica de retry e batching) não impacte a escalabilidade das operações de gestão de leads.
 - **Concorrência e Escalabilidade:** O worker utiliza `FOR UPDATE SKIP LOCKED` do PostgreSQL combinado com índices parciais para garantir que múltiplas instâncias do worker possam rodar em paralelo sem concorrência de locks.
 - **Controle de Backpressure:** O worker usa intervalos dinâmicos de polling e "publisher confirms" para evitar sobrecarregar o RabbitMQ durante picos.
 - **Arquitetura de Adapters:** A implementação de mensageria é desacoplada através de uma interface `MessagePublisher`, permitindo que o broker subjacente seja trocado no futuro sem alterar a lógica de negócio.
