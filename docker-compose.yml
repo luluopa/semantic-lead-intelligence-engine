@@ -3,11 +3,11 @@ version: '3.8'
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: quark_postgres
+    container_name: leads_postgres
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: password
-      POSTGRES_DB: quark_leads
+      POSTGRES_DB: leads_db
     ports:
       - "5432:5432"
     volumes:
@@ -20,7 +20,7 @@ services:
 
   rabbitmq:
     image: rabbitmq:3-management-alpine
-    container_name: quark_rabbitmq
+    container_name: leads_rabbitmq
     ports:
       - "5672:5672"
       - "15672:15672"
@@ -32,7 +32,7 @@ services:
 
   ollama:
     image: ollama/ollama:latest
-    container_name: quark_ollama
+    container_name: leads_ollama
     ports:
       - "11434:11434"
     volumes:
@@ -43,14 +43,14 @@ services:
   mock-api:
     build:
       context: ./mock-api
-    container_name: quark_mock_api
+    container_name: leads_mock_api
     ports:
       - "4000:4000"
 
   api:
     build:
       context: .
-    container_name: quark_api
+    container_name: leads_api
     ports:
       - "3000:3000"
     env_file:
@@ -67,7 +67,7 @@ services:
 
   dozzle:
     image: amir20/dozzle:latest
-    container_name: quark_dozzle
+    container_name: leads_dozzle
     ports:
       - "8080:8080"
     volumes:

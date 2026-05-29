@@ -1,4 +1,4 @@
-# Contributing to Quark Leads
+# Contributing to Lead Enrichment System
 
 Thank you for contributing! To maintain the quality of the project, please follow these guidelines.
 
