@@ -77,7 +77,7 @@ flowchart TD
     
     OutboxWorker -.->|"3. Polls (SKIP LOCKED)"| Outbox
     OutboxWorker -->|4. Publica| Broker
-    Broker -->|5. Confirma (Ack)| OutboxWorker
+    Broker -->|"5. Confirma (Ack)"| OutboxWorker
     OutboxWorker -->|6. Marca PROCESSED| Outbox
 ```
 
