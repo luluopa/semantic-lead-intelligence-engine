@@ -49,7 +49,7 @@ flowchart TD
     W_Enrich -.->|Evento Confiável| Q_Class["Fila: classification"]
     
     Q_Class --> W_Class["Worker: Classification"]
-    W_Class <-->|Prompts| Ollama["Ollama (IA)"]
+    W_Class <-->|Prompts| Ollama["Ollama (LLM)"]
     W_Class -->|Atualiza Lead| DB
 ```
 

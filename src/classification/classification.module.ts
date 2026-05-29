@@ -5,4 +5,5 @@ import { ClassificationService } from './classification.service';
   providers: [ClassificationService],
   exports: [ClassificationService],
 })
+
 export class ClassificationModule {}
