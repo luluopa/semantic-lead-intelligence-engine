@@ -28,43 +28,57 @@ Para não travar as requisições HTTP, a API apenas aceita o lead (HTTP 202 Acc
 
 Decisão Crítica: Disparar o enriquecimento e a classificação simultaneamente geraria uma condição de corrida, pois a IA precisa dos dados enriquecidos (faturamento, funcionários) para calcular um score preciso.
 Solução: Implementei um fluxo encadeado (Pipeline).
-1. O Lead é criado e publicado na fila de `enrichment`.
+
+1. O Lead é criado e um evento é enfileirado para `enrichment`.
 2. O Worker de Enriquecimento processa os dados.
-3. Apenas em caso de sucesso, o próprio worker publica a mensagem na fila de `classification`.
+3. Apenas em caso de sucesso, o próprio worker enfileira o evento para `classification`.
+
+**Diagrama 1: Pipeline do Sistema (Visão Geral)**
+*(Nota: O mecanismo de publicação confiável de eventos está simplificado aqui. Veja o Diagrama 2 para detalhes).*
 
 ```mermaid
 flowchart TD
     Client["Cliente REST"] -->|POST /leads| API["NestJS API"]
     
-    subgraph Storage["Armazenamento (PostgreSQL)"]
-        DB[(Tabela Leads)]
+    API -->|Salva Lead| DB[(PostgreSQL)]
+    API -.->|Evento Confiável| Q_Enrich["Fila: enrichment"]
+    
+    Q_Enrich --> W_Enrich["Worker: Enrichment"]
+    W_Enrich <-->|Consulta| MockAPI["Mock API Externa"]
+    W_Enrich -->|Atualiza Lead| DB
+    W_Enrich -.->|Evento Confiável| Q_Class["Fila: classification"]
+    
+    Q_Class --> W_Class["Worker: Classification"]
+    W_Class <-->|Prompts| Ollama["Ollama (IA)"]
+    W_Class -->|Atualiza Lead| DB
+```
+
+**Diagrama 2: Entrega Confiável (Detalhe do Serviço Outbox)**
+*(Este diagrama detalha como as setas de "Evento Confiável" no Diagrama 1 realmente funcionam para não perder dados).*
+
+```mermaid
+flowchart TD
+    subgraph "Qualquer Produtor (API ou Worker)"
+        Producer["Lógica de Negócio"]
+    end
+    
+    subgraph "Transação do Banco de Dados"
+        DB[(Tabelas de Negócio)]
         Outbox[(Tabela Outbox)]
     end
     
-    subgraph Broker["Mensageria (RabbitMQ)"]
-        Q_Enrich["Fila: enrichment"]
-        Q_Class["Fila: classification"]
+    Producer -->|1. Atualiza Dados| DB
+    Producer -->|2. Salva Evento| Outbox
+    
+    subgraph "Serviço Dedicado"
+        OutboxWorker["Worker: Outbox"]
+        Broker["Mensageria (RabbitMQ)"]
     end
     
-    %% Fluxo da API
-    API -->|1. Salva PENDING| DB
-    API -->|2. Salva Evento| Outbox
-    
-    %% Fluxo do Outbox Worker
-    OutboxWorker["Worker: Outbox"] -.->|Polls SKIP LOCKED| Outbox
-    OutboxWorker -->|Publica| Q_Enrich
-    OutboxWorker -->|Publica| Q_Class
-    
-    %% Fluxo de Enriquecimento
-    Q_Enrich -->|Consome| W_Enrich["Worker: Enrichment"]
-    W_Enrich -.->|Consulta| MockAPI["Mock API Externa"]
-    W_Enrich -->|1. Atualiza ENRICHED| DB
-    W_Enrich -->|2. Salva Evento| Outbox
-    
-    %% Fluxo de Classificação
-    Q_Class -->|Consome| W_Class["Worker: Classification"]
-    W_Class -.->|Prompt| Ollama["Ollama (tinyllama)"]
-    W_Class -->|Atualiza CLASSIFIED| DB
+    OutboxWorker -.->|3. Polls (SKIP LOCKED)| Outbox
+    OutboxWorker -->|4. Publica| Broker
+    Broker -->|5. Confirma (Ack)| OutboxWorker
+    OutboxWorker -->|6. Marca PROCESSED| Outbox
 ```
 
 ### 2. Resiliência com RabbitMQ (DLX/DLQ)

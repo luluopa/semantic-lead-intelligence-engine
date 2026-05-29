@@ -29,43 +29,56 @@ To avoid blocking HTTP requests, the API merely accepts the lead (HTTP 202 Accep
 Critical Decision: Triggering enrichment and classification simultaneously would create a race condition, as the AI needs the enriched data (revenue, employees) to calculate an accurate score.
 Solution: I implemented a chained flow (Pipeline).
 
-1. The Lead is created and published to the `enrichment` queue.
+1. The Lead is created and an event is queued for `enrichment`.
 2. The Enrichment Worker processes the data.
-3. Only on success, the worker itself publishes the message to the `classification` queue.
+3. Only on success, the worker itself queues an event for `classification`.
+
+**Diagram 1: High-Level System Pipeline**
+*(Note: The reliable event publishing mechanism is simplified here. See Diagram 2 for details).*
 
 ```mermaid
 flowchart TD
     Client["REST Client"] -->|POST /leads| API["NestJS API"]
     
-    subgraph Storage["Storage (PostgreSQL)"]
-        DB[(Leads Table)]
+    API -->|Saves Lead| DB[(PostgreSQL)]
+    API -.->|Reliable Event| Q_Enrich["Queue: enrichment"]
+    
+    Q_Enrich --> W_Enrich["Worker: Enrichment"]
+    W_Enrich <-->|Queries| MockAPI["Mock API"]
+    W_Enrich -->|Updates Lead| DB
+    W_Enrich -.->|Reliable Event| Q_Class["Queue: classification"]
+    
+    Q_Class --> W_Class["Worker: Classification"]
+    W_Class <-->|Prompts| Ollama["Ollama (AI)"]
+    W_Class -->|Updates Lead| DB
+```
+
+**Diagram 2: Reliable Delivery (Outbox Service Detail)**
+*(This details how the "Reliable Event" arrows in Diagram 1 actually work without losing data).*
+
+```mermaid
+flowchart TD
+    subgraph "Any Producer (API or Worker)"
+        Producer["Business Logic"]
+    end
+    
+    subgraph "Database Transaction"
+        DB[(Business Tables)]
         Outbox[(Outbox Table)]
     end
     
-    subgraph Broker["Message Broker (RabbitMQ)"]
-        Q_Enrich["Queue: enrichment"]
-        Q_Class["Queue: classification"]
+    Producer -->|1. Updates Data| DB
+    Producer -->|2. Saves Event| Outbox
+    
+    subgraph "Dedicated Service"
+        OutboxWorker["Worker: Outbox"]
+        Broker["Message Broker (RabbitMQ)"]
     end
     
-    %% API Flow
-    API -->|1. Saves PENDING| DB
-    API -->|2. Saves Event| Outbox
-    
-    %% Outbox Worker Flow
-    OutboxWorker["Worker: Outbox"] -.->|Polls SKIP LOCKED| Outbox
-    OutboxWorker -->|Publishes| Q_Enrich
-    OutboxWorker -->|Publishes| Q_Class
-    
-    %% Enrichment Flow
-    Q_Enrich -->|Consumes| W_Enrich["Worker: Enrichment"]
-    W_Enrich -.->|Queries| MockAPI["External Mock API"]
-    W_Enrich -->|1. Updates ENRICHED| DB
-    W_Enrich -->|2. Saves Event| Outbox
-    
-    %% Classification Flow
-    Q_Class -->|Consumes| W_Class["Worker: Classification"]
-    W_Class -.->|Prompt| Ollama["Ollama (tinyllama)"]
-    W_Class -->|Updates CLASSIFIED| DB
+    OutboxWorker -.->|3. Polls (SKIP LOCKED)| Outbox
+    OutboxWorker -->|4. Publishes| Broker
+    Broker -->|5. Confirms (Ack)| OutboxWorker
+    OutboxWorker -->|6. Marks PROCESSED| Outbox
 ```
 
 
