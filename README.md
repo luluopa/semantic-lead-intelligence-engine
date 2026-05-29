@@ -75,7 +75,7 @@ flowchart TD
         Broker["Message Broker (RabbitMQ)"]
     end
     
-    OutboxWorker -.->|3. Polls (SKIP LOCKED)| Outbox
+    OutboxWorker -.->|"3. Polls (SKIP LOCKED)"| Outbox
     OutboxWorker -->|4. Publishes| Broker
     Broker -->|5. Confirms (Ack)| OutboxWorker
     OutboxWorker -->|6. Marks PROCESSED| Outbox
