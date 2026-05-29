@@ -36,7 +36,7 @@ Solução: Implementei um fluxo encadeado (Pipeline).
 flowchart TD
     Client["Cliente REST"] -->|POST /leads| API["NestJS API"]
     
-    subgraph "DB Transaction"
+    subgraph "Transação da API"
         API -->|1. Salva PENDING| DB[(PostgreSQL)]
         API -->|2. Salva Evento| Outbox[(Tabela Outbox)]
     end
@@ -46,8 +46,13 @@ flowchart TD
     
     Q_Enrich --> W_Enrich["Worker: Enrichment"]
     W_Enrich -->|Consulta| MockAPI["Mock API Externa"]
-    W_Enrich -->|Atualiza ENRICHED| DB
-    W_Enrich -->|Publica Sucesso| Q_Class["Fila: lead.classification"]
+    
+    subgraph "Transação de Enriquecimento"
+        W_Enrich -->|1. Atualiza ENRICHED| DB
+        W_Enrich -->|2. Salva Evento| Outbox
+    end
+    
+    OutboxWorker -->|Publica| Q_Class["Fila: lead.classification"]
     
     Q_Class --> W_Class["Worker: Classification"]
     W_Class -->|Prompt JSON| Ollama["Ollama (tinyllama)"]
@@ -87,16 +92,16 @@ A solução adotada foi um modelo híbrido no PostgreSQL:
 
 ### 7. Outbox Pattern (Mensageria Transacional)
 
-Para evitar o problema de "Dual Write", onde um evento pode ser salvo no banco de dados mas falhar ao ser publicado no RabbitMQ, foi implementado o Outbox Pattern.
-- **Integridade Transacional:** A API salva o `Lead` e o evento no `Outbox` em uma única transação no banco de dados.
-- **Outbox Worker Dedicado:** Um worker separado em background pesquisa a tabela `Outbox` e publica os eventos no RabbitMQ.
-- **Concorrência e Escalabilidade:** O worker utiliza `FOR UPDATE SKIP LOCKED` do PostgreSQL combinado com índices parciais para garantir que múltiplas instâncias do worker possam rodar em paralelo sem concorrência de locks ou starvation de I/O.
+Para evitar o problema de "Dual Write", onde um evento pode ser salvo no banco de dados mas falhar ao ser publicado no RabbitMQ, foi implementado o Outbox Pattern em todo o sistema.
+- **Integridade Transacional:** Todo serviço que precisa publicar uma mensagem (API, Enrichment Worker, etc.) salva os dados de negócio e o evento no `Outbox` em uma única transação no banco de dados.
+- **Entrega Confiável:** Um worker separado em background pesquisa a tabela `Outbox` e garante que cada evento seja publicado com sucesso em sua respectiva fila (`enrichment`, `classification`, etc.).
+- **Concorrência e Escalabilidade:** O worker utiliza `FOR UPDATE SKIP LOCKED` do PostgreSQL combinado com índices parciais para garantir que múltiplas instâncias do worker possam rodar em paralelo sem concorrência de locks.
 - **Controle de Backpressure:** O worker usa intervalos dinâmicos de polling e "publisher confirms" para evitar sobrecarregar o RabbitMQ durante picos.
-- **Arquitetura de Adapters:** A implementação de mensageria é desacoplada através de uma interface `MessagePublisher`, permitindo que o broker subjacente (atualmente RabbitMQ) seja trocado no futuro sem alterar o serviço de Outbox.
+- **Arquitetura de Adapters:** A implementação de mensageria é desacoplada através de uma interface `MessagePublisher`, permitindo que o broker subjacente seja trocado no futuro sem alterar a lógica de negócio.
 
 ## Modelagem de Dados
 
-O schema foi desenhado para suportar o histórico completo de execuções, mantendo a integridade referencial.
+O schema foi desenhado para suportar o histórico completo de execuções e mensageria confiável.
 
 ```mermaid
 erDiagram
@@ -157,6 +162,7 @@ erDiagram
     Outbox {
         uuid id PK
         varchar eventType
+        varchar destination "Nome da fila"
         jsonb payload
         enum status "PENDING | PROCESSED | FAILED"
         int attempts

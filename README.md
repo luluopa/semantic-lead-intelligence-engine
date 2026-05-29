@@ -37,7 +37,7 @@ Solution: I implemented a chained flow (Pipeline).
 flowchart TD
     Client["REST Client"] -->|POST /leads| API["NestJS API"]
     
-    subgraph "DB Transaction"
+    subgraph "API Transaction"
         API -->|1. Saves PENDING| DB[(PostgreSQL)]
         API -->|2. Saves Event| Outbox[(Outbox Table)]
     end
@@ -47,8 +47,13 @@ flowchart TD
     
     Q_Enrich --> W_Enrich["Worker: Enrichment"]
     W_Enrich -->|Queries| MockAPI["External Mock API"]
-    W_Enrich -->|Updates ENRICHED| DB
-    W_Enrich -->|Publishes Success| Q_Class["Queue: lead.classification"]
+    
+    subgraph "Enrichment Transaction"
+        W_Enrich -->|1. Updates ENRICHED| DB
+        W_Enrich -->|2. Saves Event| Outbox
+    end
+    
+    OutboxWorker -->|Publishes| Q_Class["Queue: lead.classification"]
     
     Q_Class --> W_Class["Worker: Classification"]
     W_Class -->|JSON Prompt| Ollama["Ollama (tinyllama)"]
@@ -93,17 +98,16 @@ The adopted solution was a hybrid model in PostgreSQL:
 
 ### 7. Outbox Pattern (Transactional Messaging)
 
-To avoid the "Dual Write" problem where an event might be saved to the database but fail to publish to RabbitMQ, an Outbox Pattern was implemented.
-
-- **Transactional Integrity:** The API saves the `Lead` and the `Outbox` event in a single database transaction.
-- **Dedicated Outbox Worker:** A separate background worker polls the `Outbox` table and publishes events to RabbitMQ.
-- **Concurrency & Scalability:** The worker uses Post`I`greSQL's `FOR UPDATE SKP LOCKED` combined with partial indexes to ensure multiple worker instances can run in parallel without locking contentions or I/O starvation.
+To avoid the "Dual Write" problem where an event might be saved to the database but fail to publish to RabbitMQ, a system-wide Outbox Pattern was implemented.
+- **Transactional Integrity:** Every service that needs to publish a message (API, Enrichment Worker, etc.) saves the business data and the `Outbox` event in a single database transaction.
+- **Reliable Delivery:** A dedicated background worker polls the `Outbox` table and ensures every event is successfully published to its respective queue (`enrichment`, `classification`, etc.).
+- **Concurrency & Scalability:** The worker uses PostgreSQL's `FOR UPDATE SKIP LOCKED` combined with partial indexes to ensure multiple worker instances can run in parallel without locking contentions.
 - **Backpressure Handling:** The worker uses dynamic polling intervals and publisher confirms to avoid overwhelming RabbitMQ during spikes.
-- **Adapter Architecture:** The messaging implementation is decoupled via a `MessagePublisher` interface, allowing the underlying broker (currently RabbitMQ) to be swapped in the future without changing the Outbox service.
+- **Adapter Architecture:** The messaging implementation is decoupled via a `MessagePublisher` interface, allowing the underlying broker to be swapped without changing the business logic.
 
 ## Data Modeling
 
-The schema was designed to support the full execution history while maintaining referential integrity.
+The schema was designed to support the full execution history and reliable messaging.
 
 ```mermaid
 erDiagram
@@ -164,6 +168,7 @@ erDiagram
     Outbox {
         uuid id PK
         varchar eventType
+        varchar destination "Queue name"
         jsonb payload
         enum status "PENDING | PROCESSED | FAILED"
         int attempts
