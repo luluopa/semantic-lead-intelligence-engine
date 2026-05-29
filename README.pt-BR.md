@@ -58,27 +58,23 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    subgraph "Qualquer Produtor (API ou Worker)"
-        Producer["Lógica de Negócio"]
-    end
+    Producer["Lógica de Negócio (Produtor)"]
     
     subgraph "Transação do Banco de Dados"
         DB[(Tabelas de Negócio)]
         Outbox[(Tabela Outbox)]
     end
     
-    Producer -->|1. Atualiza Dados| DB
-    Producer -->|2. Salva Evento| Outbox
+    Producer -->|"1. Atualiza Dados"| DB
+    Producer -->|"2. Salva Evento"| Outbox
     
-    subgraph "Serviço Dedicado"
-        OutboxWorker["Worker: Outbox"]
-        Broker["Mensageria (RabbitMQ)"]
-    end
+    OutboxWorker["Outbox Worker (Serviço Dedicado)"]
+    Broker["Mensageria (RabbitMQ)"]
     
-    OutboxWorker -.->|"3. Polls (SKIP LOCKED)"| Outbox
-    OutboxWorker -->|4. Publica| Broker
-    Broker -->|"5. Confirma (Ack)"| OutboxWorker
-    OutboxWorker -->|6. Marca PROCESSED| Outbox
+    Outbox -.->|"3. Consultado via Polling (SKIP LOCKED)"| OutboxWorker
+    OutboxWorker -->|"4. Publica"| Broker
+    Broker -.->|"5. Confirma (Ack)"| OutboxWorker
+    OutboxWorker -->|"6. Marca PROCESSED"| Outbox
 ```
 
 ### 2. Resiliência com RabbitMQ (DLX/DLQ)

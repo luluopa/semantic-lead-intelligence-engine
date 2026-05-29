@@ -58,27 +58,23 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    subgraph "Any Producer (API or Worker)"
-        Producer["Business Logic"]
-    end
+    Producer["Business Logic (Producer)"]
     
     subgraph "Database Transaction"
         DB[(Business Tables)]
         Outbox[(Outbox Table)]
     end
     
-    Producer -->|1. Updates Data| DB
-    Producer -->|2. Saves Event| Outbox
+    Producer -->|"1. Updates Data"| DB
+    Producer -->|"2. Saves Event"| Outbox
     
-    subgraph "Dedicated Service"
-        OutboxWorker["Worker: Outbox"]
-        Broker["Message Broker (RabbitMQ)"]
-    end
+    OutboxWorker["Outbox Worker (Dedicated Service)"]
+    Broker["Message Broker (RabbitMQ)"]
     
-    OutboxWorker -.->|"3. Polls (SKIP LOCKED)"| Outbox
-    OutboxWorker -->|4. Publishes| Broker
-    Broker -->|"5. Confirms (Ack)"| OutboxWorker
-    OutboxWorker -->|6. Marks PROCESSED| Outbox
+    Outbox -.->|"3. Fetched via Polling (SKIP LOCKED)"| OutboxWorker
+    OutboxWorker -->|"4. Publishes"| Broker
+    Broker -.->|"5. Confirms (Ack)"| OutboxWorker
+    OutboxWorker -->|"6. Marks PROCESSED"| Outbox
 ```
 
 
