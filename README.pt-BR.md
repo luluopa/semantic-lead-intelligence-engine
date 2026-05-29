@@ -167,7 +167,6 @@ erDiagram
 
     Lead ||--o{ Enrichment : "possui histórico de"
     Lead ||--o{ AiClassification : "possui histórico de"
-    Lead ||--o{ Outbox : "gera eventos em"
 ```
 
 ---

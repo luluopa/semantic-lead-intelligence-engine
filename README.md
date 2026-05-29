@@ -174,7 +174,6 @@ erDiagram
 
     Lead ||--o{ Enrichment : "has history of"
     Lead ||--o{ AiClassification : "has history of"
-    Lead ||--o{ Outbox : "generates events in"
 ```
 
 
